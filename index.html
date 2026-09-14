@@ -232,6 +232,27 @@
 
   .ipp-reset-btn:hover { background: #E2E0CE; }
 
+  .ipp-footer-left {
+    display: flex;
+    gap: 8px;
+  }
+
+  .ipp-export-btn {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: #2F5D52;
+    border: 1px solid #2F5D52;
+    border-radius: 6px;
+    padding: 6px 12px;
+    font-size: 12px;
+    color: #F7F7EF;
+    cursor: pointer;
+    font-family: inherit;
+  }
+
+  .ipp-export-btn:hover { background: #254A41; }
+
   .ipp-save-status {
     font-size: 12px;
     color: #8A8A76;
@@ -271,15 +292,22 @@
   <div id="outcomes"></div>
 
   <div class="ipp-footer">
-    <button class="ipp-reset-btn" id="reset-btn">
-      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"></polyline><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path></svg>
-      Reset all progress
-    </button>
+    <div class="ipp-footer-left">
+      <button class="ipp-export-btn" id="export-btn">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+        Export spreadsheet
+      </button>
+      <button class="ipp-reset-btn" id="reset-btn">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"></polyline><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path></svg>
+        Reset all progress
+      </button>
+    </div>
     <div class="ipp-save-status" id="save-status"></div>
   </div>
 
 </div>
 
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script>
 const OUTCOMES = [
   {
@@ -345,8 +373,13 @@ const STORAGE_KEY = "ipp-2026-2027-progress";
 
 let doneState = {};
 let notesState = {};
+let completedDates = {};
 let expandedState = {};
 OUTCOMES.forEach(o => expandedState[o.id] = true);
+
+function formatDate(d) {
+  return d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
+}
 
 function parseDue(due) {
   if (due === "Ongoing") return null;
@@ -371,6 +404,7 @@ async function loadState() {
       const parsed = JSON.parse(result.value);
       doneState = parsed.done || {};
       notesState = parsed.notes || {};
+      completedDates = parsed.completedDates || {};
     }
   } catch (e) {
     // nothing saved yet
@@ -384,7 +418,7 @@ async function persist() {
   try {
     const result = await window.storage.set(
       STORAGE_KEY,
-      JSON.stringify({ done: doneState, notes: notesState }),
+      JSON.stringify({ done: doneState, notes: notesState, completedDates: completedDates }),
       false
     );
     statusEl.textContent = result ? "Saved" : "Couldn't save";
@@ -457,6 +491,11 @@ function render() {
         checkbox.checked = done;
         checkbox.addEventListener("change", () => {
           doneState[item.id] = checkbox.checked;
+          if (checkbox.checked) {
+            completedDates[item.id] = formatDate(new Date());
+          } else {
+            delete completedDates[item.id];
+          }
           persist();
           render();
         });
@@ -480,6 +519,16 @@ function render() {
         noteToggle.textContent = notesState[item.id] ? "edit note" : "add note";
 
         metaRow.appendChild(badge);
+
+        if (done && completedDates[item.id]) {
+          const completedBadge = document.createElement("span");
+          completedBadge.className = "ipp-due-badge";
+          completedBadge.style.background = "#9FE1CB55";
+          completedBadge.style.color = "#085041";
+          completedBadge.textContent = "Done " + completedDates[item.id];
+          metaRow.appendChild(completedBadge);
+        }
+
         metaRow.appendChild(noteToggle);
 
         const noteInput = document.createElement("textarea");
@@ -535,9 +584,33 @@ function render() {
 document.getElementById("reset-btn").addEventListener("click", async () => {
   doneState = {};
   notesState = {};
+  completedDates = {};
   await persist();
   render();
 });
+
+function exportSpreadsheet() {
+  const wb = XLSX.utils.book_new();
+
+  OUTCOMES.forEach(outcome => {
+    const rows = outcome.items.map(item => ({
+      "Task": item.text,
+      "Deadline": item.due,
+      "Completed": doneState[item.id] ? "Yes" : "No",
+      "Completed On": completedDates[item.id] || "",
+      "Notes": notesState[item.id] || "",
+    }));
+    const ws = XLSX.utils.json_to_sheet(rows);
+    ws["!cols"] = [{ wch: 62 }, { wch: 14 }, { wch: 11 }, { wch: 14 }, { wch: 45 }];
+    const sheetName = outcome.label.replace("Work Outcome ", "WO");
+    XLSX.utils.book_append_sheet(wb, ws, sheetName);
+  });
+
+  const filename = "IPP-progress-" + formatDate(new Date()).replace(/,/g, "").replace(/ /g, "-") + ".xlsx";
+  XLSX.writeFile(wb, filename);
+}
+
+document.getElementById("export-btn").addEventListener("click", exportSpreadsheet);
 
 (async function init() {
   await loadState();
