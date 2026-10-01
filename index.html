@@ -397,31 +397,29 @@ function urgency(due, done) {
   return "later";
 }
 
-async function loadState() {
+function loadState() {
   try {
-    const result = await window.storage.get(STORAGE_KEY, false);
-    if (result && result.value) {
-      const parsed = JSON.parse(result.value);
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
       doneState = parsed.done || {};
       notesState = parsed.notes || {};
       completedDates = parsed.completedDates || {};
     }
   } catch (e) {
-    // nothing saved yet
+    // nothing saved yet, or storage unavailable (e.g. private browsing)
   }
 }
 
 let saveTimeout = null;
-async function persist() {
+function persist() {
   const statusEl = document.getElementById("save-status");
-  statusEl.textContent = "Saving\u2026";
   try {
-    const result = await window.storage.set(
+    localStorage.setItem(
       STORAGE_KEY,
-      JSON.stringify({ done: doneState, notes: notesState, completedDates: completedDates }),
-      false
+      JSON.stringify({ done: doneState, notes: notesState, completedDates: completedDates })
     );
-    statusEl.textContent = result ? "Saved" : "Couldn't save";
+    statusEl.textContent = "Saved";
   } catch (e) {
     statusEl.textContent = "Couldn't save";
   }
@@ -581,11 +579,11 @@ function render() {
   });
 }
 
-document.getElementById("reset-btn").addEventListener("click", async () => {
+document.getElementById("reset-btn").addEventListener("click", () => {
   doneState = {};
   notesState = {};
   completedDates = {};
-  await persist();
+  persist();
   render();
 });
 
@@ -612,8 +610,8 @@ function exportSpreadsheet() {
 
 document.getElementById("export-btn").addEventListener("click", exportSpreadsheet);
 
-(async function init() {
-  await loadState();
+(function init() {
+  loadState();
   document.getElementById("loading").style.display = "none";
   document.getElementById("app").style.display = "block";
   render();
